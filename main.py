@@ -93,19 +93,29 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
 
 tests.test_layers(layers)
 
-#
-# def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
-#     """
-#     Build the TensorFLow loss and optimizer operations.
-#     :param nn_last_layer: TF Tensor of the last layer in the neural network
-#     :param correct_label: TF Placeholder for the correct label image
-#     :param learning_rate: TF Placeholder for the learning rate
-#     :param num_classes: Number of classes to classify
-#     :return: Tuple of (logits, train_op, cross_entropy_loss)
-#     """
-#     # TODO: Implement function
-#     return None, None, None
-# tests.test_optimize(optimize)
+
+def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
+    """
+    Build the TensorFLow loss and optimizer operations.
+    :param nn_last_layer: TF Tensor of the last layer in the neural network
+    :param correct_label: TF Placeholder for the correct label image
+    :param learning_rate: TF Placeholder for the learning rate
+    :param num_classes: Number of classes to classify
+    :return: Tuple of (logits, train_op, cross_entropy_loss)
+    """
+    # TODO: Implement function
+
+    logits = tf.reshape(nn_last_layer, shape=[-1, num_classes])
+    flattened_correct_label = tf.reshape(correct_label, shape=[-1, num_classes])
+
+    cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=flattened_correct_label, logits=logits)
+    mean_loss = tf.reduce_mean(cross_entropy_loss)
+
+    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(mean_loss)
+
+    return logits, train_op, mean_loss
+
+tests.test_optimize(optimize)
 #
 #
 # def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,

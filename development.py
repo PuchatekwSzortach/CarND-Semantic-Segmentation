@@ -117,10 +117,53 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     upscaled_op = tf.contrib.layers.conv2d_transpose(
         upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
 
-    upscaled_op = tf.contrib.layers.conv2d_transpose(
+    logits_op = tf.contrib.layers.conv2d_transpose(
         upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
 
-    return upscaled_op
+    return logits_op
+
+
+def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
+    """
+    Build the TensorFLow loss and optimizer operations.
+    :param nn_last_layer: TF Tensor of the last layer in the neural network
+    :param correct_label: TF Placeholder for the correct label image
+    :param learning_rate: TF Placeholder for the learning rate
+    :param num_classes: Number of classes to classify
+    :return: Tuple of (logits, train_op, cross_entropy_loss)
+    """
+    # TODO: Implement function
+
+    logits = tf.reshape(nn_last_layer, shape=[-1, num_classes])
+    flattened_correct_label = tf.reshape(correct_label, shape=[-1, num_classes])
+
+    cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=flattened_correct_label, logits=logits)
+    mean_loss = tf.reduce_mean(cross_entropy_loss)
+
+    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(mean_loss)
+
+    return logits, train_op, mean_loss
+
+
+def train_nn(session, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
+             correct_label, keep_prob, learning_rate):
+    """
+    Train neural network and print out the loss during training.
+    :param session: TF Session
+    :param epochs: Number of epochs
+    :param batch_size: Batch size
+    :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
+    :param train_op: TF Operation to train the neural network
+    :param cross_entropy_loss: TF Tensor for the amount of loss
+    :param input_image: TF Placeholder for input images
+    :param correct_label: TF Placeholder for label images
+    :param keep_prob: TF Placeholder for dropout keep probability
+    :param learning_rate: TF Placeholder for learning rate
+    """
+    # TODO: Implement function
+    pass
+
+tests.test_train_nn(train_nn)
 
 
 def main():
@@ -140,6 +183,11 @@ def main():
 
     log_training_data(data_dir, image_shape)
 
+    label_shape = (None,) + image_shape + (num_classes,)
+
+    correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
+    learning_rate_placeholder = tf.placeholder(tf.float32, (None,))
+
     with tf.Session() as session:
 
         # Path to vgg model
@@ -147,19 +195,22 @@ def main():
 
         get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
         batches_generator = get_batches_fn(4)
+        images, labels = next(batches_generator)
 
         # TODO: Build NN using load_vgg, layers, and optimize function
         input_op, keep_probability_op, layer_3_out_op, layer_4_out_op, layer_7_out_op = load_vgg(session, vgg_path)
-        first_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
+        logits_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
+
+        logits, train_op, loss_op = optimize(
+            logits_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
 
         session.run(tf.global_variables_initializer())
+        feed_dictionary = {input_op: images, correct_label_placeholder: labels, keep_probability_op: 1.0}
 
-        images, labels = next(batches_generator)
+        loss = session.run(loss_op, feed_dictionary)
+        print(loss)
 
-        feed_dictionary = {input_op: images, keep_probability_op: 1.0}
-
-        first = session.run(first_op, feed_dictionary)
-        print(first.shape)
+        print(loss.shape)
 
 
 if __name__ == "__main__":
