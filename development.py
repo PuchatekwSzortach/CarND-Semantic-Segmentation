@@ -92,13 +92,35 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     upscaled_layer_7 = tf.contrib.layers.conv2d_transpose(
         vgg_layer7_out, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
 
-    # Scale values to they are of similar range as upscaled_layer_7
+    # Create proper kernels number from layer 4, scale down values so they are of similar
+    # range as layer 7 outputs
     scaled_vgg_layer4_out = 0.01 * tf.layers.conv2d(
-        vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu)
+        vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+        name="scaled_vgg_layer4_out")
 
     merged_7_4 = upscaled_layer_7 + scaled_vgg_layer4_out
-    #
-    return upscaled_layer_7, scaled_vgg_layer4_out
+
+    upscaled_7_4 = tf.contrib.layers.conv2d_transpose(
+        merged_7_4, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    # Create proper kernels number from layer 3, scale down values so they are of similar
+    # range as layer upscaled_7_4 outputs
+    scaled_vgg_layer3_out = 0.01 * tf.layers.conv2d(
+        vgg_layer3_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+        name="scaled_vgg_layer3_out")
+
+    merged_op = upscaled_7_4 + scaled_vgg_layer3_out
+
+    upscaled_op = tf.contrib.layers.conv2d_transpose(
+        merged_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    upscaled_op = tf.contrib.layers.conv2d_transpose(
+        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    upscaled_op = tf.contrib.layers.conv2d_transpose(
+        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    return upscaled_op
 
 
 def main():
@@ -128,7 +150,7 @@ def main():
 
         # TODO: Build NN using load_vgg, layers, and optimize function
         input_op, keep_probability_op, layer_3_out_op, layer_4_out_op, layer_7_out_op = load_vgg(session, vgg_path)
-        first_op, second_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
+        first_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
 
         session.run(tf.global_variables_initializer())
 
@@ -136,18 +158,8 @@ def main():
 
         feed_dictionary = {input_op: images, keep_probability_op: 1.0}
 
-        layer7scaled, layer4 = session.run([first_op, second_op], feed_dictionary)
-
-        print(layer7scaled.shape)
-        print(layer4.shape)
-
-        print("Max, mean, min, std of 7: {}, {}, {}, {}".format(
-            np.max(layer7scaled), np.mean(layer7scaled), np.min(layer7scaled), np.std(layer7scaled)
-        ))
-
-        print("Max, mean, min, std of 4: {}, {}, {}, {}".format(
-            np.max(layer4), np.mean(layer4), np.min(layer4), np.std(layer4)
-        ))
+        first = session.run(first_op, feed_dictionary)
+        print(first.shape)
 
 
 if __name__ == "__main__":

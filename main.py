@@ -57,7 +57,40 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # TODO: Implement function
-    return None
+    # Op is same size as vgg_layer4_out
+    upscaled_layer_7 = tf.contrib.layers.conv2d_transpose(
+        vgg_layer7_out, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    # Create proper kernels number from layer 4, scale down values so they are of similar
+    # range as layer 7 outputs
+    scaled_vgg_layer4_out = 0.01 * tf.layers.conv2d(
+        vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+        name="scaled_vgg_layer4_out")
+
+    merged_7_4 = upscaled_layer_7 + scaled_vgg_layer4_out
+
+    upscaled_7_4 = tf.contrib.layers.conv2d_transpose(
+        merged_7_4, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    # Create proper kernels number from layer 3, scale down values so they are of similar
+    # range as layer upscaled_7_4 outputs
+    scaled_vgg_layer3_out = 0.01 * tf.layers.conv2d(
+        vgg_layer3_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+        name="scaled_vgg_layer3_out")
+
+    merged_op = upscaled_7_4 + scaled_vgg_layer3_out
+
+    upscaled_op = tf.contrib.layers.conv2d_transpose(
+        merged_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    upscaled_op = tf.contrib.layers.conv2d_transpose(
+        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    upscaled_op = tf.contrib.layers.conv2d_transpose(
+        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+
+    return upscaled_op
+
 tests.test_layers(layers)
 
 #
