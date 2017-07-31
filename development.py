@@ -140,16 +140,16 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=flattened_correct_label, logits=logits)
     mean_loss = tf.reduce_mean(cross_entropy_loss)
 
-    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(mean_loss)
+    train_op = tf.train.AdamOptimizer(learning_rate).minimize(mean_loss)
 
     return logits, train_op, mean_loss
 
 
-def train_nn(session, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
+def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
              correct_label, keep_prob, learning_rate):
     """
     Train neural network and print out the loss during training.
-    :param session: TF Session
+    :param sess: TF Session
     :param epochs: Number of epochs
     :param batch_size: Batch size
     :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
@@ -161,9 +161,36 @@ def train_nn(session, epochs, batch_size, get_batches_fn, train_op, cross_entrop
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
-    pass
 
-tests.test_train_nn(train_nn)
+    sess.run(tf.global_variables_initializer())
+
+    for epoch in range(epochs):
+
+        images, labels = get_batches_fn(batch_size)
+
+        feed_dictionary = {
+
+            input_image: images,
+            correct_label: labels,
+            keep_prob: 0.5,
+            learning_rate: 0.001
+        }
+
+        loss, _ = sess.run([cross_entropy_loss, train_op], feed_dictionary)
+        print(loss)
+
+
+def get_batching_function(data_dir, image_shape, batch_size):
+
+    get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
+    batches_generator = get_batches_fn(batch_size)
+
+    def get_batch(batch_size):
+
+        images, labels = next(batches_generator)
+        return images, labels
+
+    return get_batch
 
 
 def main():
@@ -175,8 +202,8 @@ def main():
     data_dir = './data'
     runs_dir = './runs'
 
-    # print("Kitti test")
-    # tests.test_for_kitti_dataset(data_dir)
+    batch_size = 4
+    get_batches = get_batching_function(data_dir, image_shape, batch_size)
 
     # Download pretrained vgg model
     helper.maybe_download_pretrained_vgg(data_dir)
@@ -186,31 +213,29 @@ def main():
     label_shape = (None,) + image_shape + (num_classes,)
 
     correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
-    learning_rate_placeholder = tf.placeholder(tf.float32, (None,))
+    learning_rate_placeholder = tf.placeholder(tf.float32, [])
 
     with tf.Session() as session:
 
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
 
-        get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
-        batches_generator = get_batches_fn(4)
-        images, labels = next(batches_generator)
-
         # TODO: Build NN using load_vgg, layers, and optimize function
-        input_op, keep_probability_op, layer_3_out_op, layer_4_out_op, layer_7_out_op = load_vgg(session, vgg_path)
+        input_image_placeholder, keep_probability_placeholder, layer_3_out_op, layer_4_out_op, layer_7_out_op = \
+            load_vgg(session, vgg_path)
+
         logits_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
 
         logits, train_op, loss_op = optimize(
             logits_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
 
-        session.run(tf.global_variables_initializer())
-        feed_dictionary = {input_op: images, correct_label_placeholder: labels, keep_probability_op: 1.0}
+        epochs = 3
+        batch_size = 4
 
-        loss = session.run(loss_op, feed_dictionary)
-        print(loss)
-
-        print(loss.shape)
+        train_nn(
+            session, epochs, batch_size, get_batches, train_op, loss_op,
+            input_image_placeholder, correct_label_placeholder,
+            keep_probability_placeholder, learning_rate_placeholder)
 
 
 if __name__ == "__main__":
