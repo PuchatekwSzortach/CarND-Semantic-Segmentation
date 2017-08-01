@@ -84,29 +84,37 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :return: The Tensor for the last layer of output
     """
     # TODO: Implement function
-    # Op is same size as vgg_layer4_out
+
+    # Don't train old network
+    vgg_layer3_out_stopped = tf.stop_gradient(vgg_layer3_out)
+    vgg_layer4_out_stopped = tf.stop_gradient(vgg_layer4_out)
+    vgg_layer7_out_stopped = tf.stop_gradient(vgg_layer7_out)
+
+    # Make op same size as vgg_layer4_out
     upscaled_layer_7 = tf.contrib.layers.conv2d_transpose(
-        vgg_layer7_out, num_classes, kernel_size=(4, 4), stride=(2, 2), activation_fn=tf.nn.relu)
+        vgg_layer7_out_stopped, num_classes, kernel_size=(4, 4), stride=(2, 2), activation_fn=tf.nn.relu)
 
     # Create proper kernels number from layer 4, scale down values so they are of similar
     # range as layer 7 outputs
     scaled_vgg_layer4_out = tf.layers.conv2d(
-        0.1 * vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+        0.002 * vgg_layer4_out_stopped, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
         name="scaled_vgg_layer4_out")
 
-    merged_7_4 = upscaled_layer_7 + scaled_vgg_layer4_out
+    merged_7_4 = tf.add(upscaled_layer_7, scaled_vgg_layer4_out)
 
+    # Make op same size as vgg_layer3_out
     upscaled_7_4 = tf.contrib.layers.conv2d_transpose(
         merged_7_4, num_classes, kernel_size=(4, 4), stride=(2, 2), activation_fn=tf.nn.relu)
 
     # Create proper kernels number from layer 3, scale down values so they are of similar
     # range as layer upscaled_7_4 outputs
     scaled_vgg_layer3_out = tf.layers.conv2d(
-        0.01 * vgg_layer3_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+        0.001 * vgg_layer3_out_stopped, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
         name="scaled_vgg_layer3_out")
 
-    merged_op = upscaled_7_4 + scaled_vgg_layer3_out
+    merged_op = tf.add(upscaled_7_4, scaled_vgg_layer3_out)
 
+    # Upscale to original image size
     upscaled_op = tf.contrib.layers.conv2d_transpose(
         merged_op, num_classes, kernel_size=(16, 16), stride=(8, 8), activation_fn=tf.nn.relu)
 
@@ -126,8 +134,8 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     """
     # TODO: Implement function
 
-    logits = tf.reshape(nn_last_layer, shape=[-1, num_classes])
-    flattened_correct_label = tf.reshape(correct_label, shape=[-1, num_classes])
+    logits = tf.reshape(tf.cast(nn_last_layer, tf.float32), shape=[-1, num_classes])
+    flattened_correct_label = tf.reshape(tf.cast(correct_label, tf.float32), shape=[-1, num_classes])
 
     cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=flattened_correct_label, logits=logits)
     mean_loss = tf.reduce_mean(cross_entropy_loss)
@@ -155,9 +163,8 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
-
     # There are 290 images in both training and test datasets
-    batches_per_epoch = int(290 / batch_size)
+    batches_per_epoch = int(290 / batch_size) + 1
 
     learning_rate_value = 0.0001
 
@@ -170,16 +177,16 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
             images, labels = get_batches_fn(batch_size)
 
             feed_dictionary = {
-
                 input_image: images,
                 correct_label: labels,
-                keep_prob: 0.5,
-                learning_rate: learning_rate_value * (0.9 ** epoch_index)
+                keep_prob: 1.0,
+                learning_rate: learning_rate_value * (0.99 ** epoch_index)
             }
 
-            loss, _ = sess.run([cross_entropy_loss, train_op], feed_dictionary)
+            sess.run(train_op, feed_dictionary)
 
             if batch_index % 10 == 0:
+                loss = sess.run(cross_entropy_loss, feed_dictionary)
                 print("\tBatch loss: {}".format(loss))
 
         print("Epoch {} end".format(epoch_index))
@@ -218,8 +225,8 @@ def run():
     correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
     learning_rate_placeholder = tf.placeholder(tf.float32, [])
 
-    epochs = 20
-    batch_size = 4
+    epochs = 100
+    batch_size = 8
 
     training_data_dir = os.path.join(data_dir, 'data_road/training')
 
@@ -241,8 +248,6 @@ def run():
         logits, train_op, loss_op = optimize(
             segmentation_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
 
-        prediction_op = tf.nn.softmax(logits)
-
         images, labels = get_training_batches(batch_size)
 
         feed_dictionary = {
@@ -253,7 +258,7 @@ def run():
 
         session.run(tf.global_variables_initializer())
 
-        predictions = session.run(prediction_op, feed_dictionary)
+        predictions = session.run(tf.nn.softmax(logits), feed_dictionary)
         non_road_accuracy, road_accuracy = get_accuracy(labels, predictions, image_shape)
         print("Before training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
@@ -263,7 +268,7 @@ def run():
             input_image_placeholder, correct_label_placeholder,
             keep_probability_placeholder, learning_rate_placeholder)
 
-        predictions = session.run(prediction_op, feed_dictionary)
+        predictions = session.run(tf.nn.softmax(logits), feed_dictionary)
         non_road_accuracy, road_accuracy = get_accuracy(labels, predictions, image_shape)
         print("After training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
