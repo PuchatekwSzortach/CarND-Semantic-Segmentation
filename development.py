@@ -46,196 +46,62 @@ def log_training_data(data_dir, image_shape):
         label = 255 * label.astype(np.uint8)
 
         logger.info(vlogging.VisualRecord("image", cv2.cvtColor(image, cv2.COLOR_RGB2BGR)))
-        logger.info(vlogging.VisualRecord("label 1", label[:, :, 1]))
+        logger.info(vlogging.VisualRecord("Non-road", label[:, :, 0]))
+        logger.info(vlogging.VisualRecord("Road", label[:, :, 1]))
 
 
-def load_vgg(session, vgg_path):
-    """
-    Load Pretrained VGG Model into TensorFlow.
-    :param session: TensorFlow Session
-    :param vgg_path: Path to vgg folder, containing "variables/" and "saved_model.pb"
-    :return: Tuple of Tensors from VGG model (image_input, keep_prob, layer3_out, layer4_out, layer7_out)
-    """
-    # TODO: Implement function
-    #   Use tf.saved_model.loader.load to load the model and weights
+def get_accuracy(ground_truth, prediction):
 
-    vgg_tag = 'vgg16'
-    tf.saved_model.loader.load(session, [vgg_tag], vgg_path)
-
-    vgg_input_tensor_name = 'image_input:0'
-    vgg_keep_prob_tensor_name = 'keep_prob:0'
-    vgg_layer3_out_tensor_name = 'layer3_out:0'
-    vgg_layer4_out_tensor_name = 'layer4_out:0'
-    vgg_layer7_out_tensor_name = 'layer7_out:0'
-
-    input_op = session.graph.get_tensor_by_name(vgg_input_tensor_name)
-    keep_probability_op = session.graph.get_tensor_by_name(vgg_keep_prob_tensor_name)
-    layer_3_out_op = session.graph.get_tensor_by_name(vgg_layer3_out_tensor_name)
-    layer_4_out_op = session.graph.get_tensor_by_name(vgg_layer4_out_tensor_name)
-    layer_7_out_op = session.graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
-
-    return input_op, keep_probability_op, layer_3_out_op, layer_4_out_op, layer_7_out_op
+    classification = (prediction > 0.5).astype(int)
 
 
-def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
-    """
-    Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
-    :param vgg_layer7_out: TF Tensor for VGG Layer 3 output
-    :param vgg_layer4_out: TF Tensor for VGG Layer 4 output
-    :param vgg_layer3_out: TF Tensor for VGG Layer 7 output
-    :param num_classes: Number of classes to classify
-    :return: The Tensor for the last layer of output
-    """
-    # TODO: Implement function
+    non_road_ground_truth = ground_truth[:, :, :, 0]
+    road_ground_truth = ground_truth[:, :, :, 1]
 
-    # Op is same size as vgg_layer4_out
-    upscaled_layer_7 = tf.contrib.layers.conv2d_transpose(
-        vgg_layer7_out, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+    non_road_classification = classification[:, :, :, 0]
+    road_classification = classification[:, :, :, 1]
 
-    # Create proper kernels number from layer 4, scale down values so they are of similar
-    # range as layer 7 outputs
-    scaled_vgg_layer4_out = 0.01 * tf.layers.conv2d(
-        vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
-        name="scaled_vgg_layer4_out")
+    non_road_union = (non_road_ground_truth == non_road_classification).astype(np.int)
+    non_road_accuracy = np.sum(non_road_union) / np.prod(non_road_ground_truth.shape)
 
-    merged_7_4 = upscaled_layer_7 + scaled_vgg_layer4_out
+    road_union = (road_ground_truth == road_classification).astype(np.int)
+    road_accuracy = np.sum(road_union) / np.prod(road_ground_truth.shape)
 
-    upscaled_7_4 = tf.contrib.layers.conv2d_transpose(
-        merged_7_4, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
-
-    # Create proper kernels number from layer 3, scale down values so they are of similar
-    # range as layer upscaled_7_4 outputs
-    scaled_vgg_layer3_out = 0.01 * tf.layers.conv2d(
-        vgg_layer3_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
-        name="scaled_vgg_layer3_out")
-
-    merged_op = upscaled_7_4 + scaled_vgg_layer3_out
-
-    upscaled_op = tf.contrib.layers.conv2d_transpose(
-        merged_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
-
-    upscaled_op = tf.contrib.layers.conv2d_transpose(
-        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
-
-    logits_op = tf.contrib.layers.conv2d_transpose(
-        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
-
-    return logits_op
-
-
-def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
-    """
-    Build the TensorFLow loss and optimizer operations.
-    :param nn_last_layer: TF Tensor of the last layer in the neural network
-    :param correct_label: TF Placeholder for the correct label image
-    :param learning_rate: TF Placeholder for the learning rate
-    :param num_classes: Number of classes to classify
-    :return: Tuple of (logits, train_op, cross_entropy_loss)
-    """
-    # TODO: Implement function
-
-    logits = tf.reshape(nn_last_layer, shape=[-1, num_classes])
-    flattened_correct_label = tf.reshape(correct_label, shape=[-1, num_classes])
-
-    cross_entropy_loss = tf.nn.softmax_cross_entropy_with_logits(labels=flattened_correct_label, logits=logits)
-    mean_loss = tf.reduce_mean(cross_entropy_loss)
-
-    train_op = tf.train.AdamOptimizer(learning_rate).minimize(mean_loss)
-
-    return logits, train_op, mean_loss
-
-
-def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_loss, input_image,
-             correct_label, keep_prob, learning_rate):
-    """
-    Train neural network and print out the loss during training.
-    :param sess: TF Session
-    :param epochs: Number of epochs
-    :param batch_size: Batch size
-    :param get_batches_fn: Function to get batches of training data.  Call using get_batches_fn(batch_size)
-    :param train_op: TF Operation to train the neural network
-    :param cross_entropy_loss: TF Tensor for the amount of loss
-    :param input_image: TF Placeholder for input images
-    :param correct_label: TF Placeholder for label images
-    :param keep_prob: TF Placeholder for dropout keep probability
-    :param learning_rate: TF Placeholder for learning rate
-    """
-    # TODO: Implement function
-
-    sess.run(tf.global_variables_initializer())
-
-    for epoch in range(epochs):
-
-        images, labels = get_batches_fn(batch_size)
-
-        feed_dictionary = {
-
-            input_image: images,
-            correct_label: labels,
-            keep_prob: 0.5,
-            learning_rate: 0.001
-        }
-
-        loss, _ = sess.run([cross_entropy_loss, train_op], feed_dictionary)
-        print(loss)
-
-
-def get_batching_function(data_dir, image_shape, batch_size):
-
-    get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
-    batches_generator = get_batches_fn(batch_size)
-
-    def get_batch(batch_size):
-
-        images, labels = next(batches_generator)
-        return images, labels
-
-    return get_batch
+    return non_road_accuracy, road_accuracy
 
 
 def main():
 
-    logger = get_logger("/tmp/segmentation.html")
+    # data_dir = './data'
+    # image_shape = (160, 576)
+    #
+    # log_training_data(data_dir, image_shape)
 
-    num_classes = 2
-    image_shape = (160, 576)
-    data_dir = './data'
-    runs_dir = './runs'
+    ground_truth = np.zeros(shape=(1, 10, 10, 2))
 
-    batch_size = 4
-    get_batches = get_batching_function(data_dir, image_shape, batch_size)
+    # Non-road surface
+    ground_truth[:, :5, :5, 0] = 1
 
-    # Download pretrained vgg model
-    helper.maybe_download_pretrained_vgg(data_dir)
+    # Road surface
+    ground_truth[:, :2, :2, 1] = 1
 
-    log_training_data(data_dir, image_shape)
+    prediction = np.zeros(shape=(1, 10, 10, 2))
 
-    label_shape = (None,) + image_shape + (num_classes,)
+    # Non-road surface
+    prediction[:, :4, :4, 0] = 0.7
 
-    correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
-    learning_rate_placeholder = tf.placeholder(tf.float32, [])
+    # Road surface
+    prediction[:, :6, :6, 1] = 0.7
 
-    with tf.Session() as session:
+    nonroad_accuracy, road_accuracy = get_accuracy(ground_truth, prediction)
 
-        # Path to vgg model
-        vgg_path = os.path.join(data_dir, 'vgg')
+    print("Expected nonroad accuracy: {}".format(0.91))
+    print("Actual nonroad accuracy: {}".format(nonroad_accuracy))
+    print()
+    print("Expected road accuracy: {}".format(0.68))
+    print("Actual road accuracy: {}".format(road_accuracy))
 
-        # TODO: Build NN using load_vgg, layers, and optimize function
-        input_image_placeholder, keep_probability_placeholder, layer_3_out_op, layer_4_out_op, layer_7_out_op = \
-            load_vgg(session, vgg_path)
 
-        logits_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
-
-        logits, train_op, loss_op = optimize(
-            logits_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
-
-        epochs = 3
-        batch_size = 4
-
-        train_nn(
-            session, epochs, batch_size, get_batches, train_op, loss_op,
-            input_image_placeholder, correct_label_placeholder,
-            keep_probability_placeholder, learning_rate_placeholder)
 
 
 if __name__ == "__main__":

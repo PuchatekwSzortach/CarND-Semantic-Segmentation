@@ -5,6 +5,7 @@ import warnings
 from distutils.version import LooseVersion
 import project_tests as tests
 
+import numpy as np
 
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
@@ -15,6 +16,26 @@ if not tf.test.gpu_device_name():
     warnings.warn('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+
+
+def get_accuracy(ground_truth, prediction):
+
+    classification = (prediction > 0.5).astype(int)
+
+
+    non_road_ground_truth = ground_truth[:, :, :, 0]
+    road_ground_truth = ground_truth[:, :, :, 1]
+
+    non_road_classification = classification[:, :, :, 0]
+    road_classification = classification[:, :, :, 1]
+
+    non_road_union = (non_road_ground_truth == non_road_classification).astype(np.int)
+    non_road_accuracy = np.sum(non_road_union) / np.prod(non_road_ground_truth.shape)
+
+    road_union = (road_ground_truth == road_classification).astype(np.int)
+    road_accuracy = np.sum(road_union) / np.prod(road_ground_truth.shape)
+
+    return non_road_accuracy, road_accuracy
 
 
 def load_vgg(session, vgg_path):
@@ -134,23 +155,49 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
-    sess.run(tf.global_variables_initializer())
 
-    for epoch in range(epochs):
-        images, labels = get_batches_fn(batch_size)
+    # There are 290 images in both training and test datasets
+    batches_per_epoch = int(290 / batch_size)
 
-        feed_dictionary = {
+    learning_rate_value = 0.01
 
-            input_image: images,
-            correct_label: labels,
-            keep_prob: 0.5,
-            learning_rate: 0.001
-        }
+    for epoch_index in range(epochs):
 
-        loss, _ = sess.run([cross_entropy_loss, train_op], feed_dictionary)
-        print(loss)
+        print("Epoch {} start".format(epoch_index))
+
+        for batch_index in range(batches_per_epoch):
+
+            images, labels = get_batches_fn(batch_size)
+
+            feed_dictionary = {
+
+                input_image: images,
+                correct_label: labels,
+                keep_prob: 0.5,
+                learning_rate: learning_rate_value * (0.9 ** epoch_index)
+            }
+
+            loss, _ = sess.run([cross_entropy_loss, train_op], feed_dictionary)
+
+            if batch_index % 10 == 0:
+                print("\tBatch loss: {}".format(loss))
+
+        print("Epoch {} end".format(epoch_index))
 
 tests.test_train_nn(train_nn)
+
+
+def get_batching_function(data_dir, image_shape, batch_size):
+
+    get_batches_fn = helper.gen_batch_function(data_dir, image_shape)
+    batches_generator = get_batches_fn(batch_size)
+
+    def get_batch(batch_size):
+
+        images, labels = next(batches_generator)
+        return images, labels
+
+    return get_batch
 
 
 def run():
@@ -167,18 +214,57 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
-    with tf.Session() as sess:
+    label_shape = (None,) + image_shape + (num_classes,)
+    correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
+    learning_rate_placeholder = tf.placeholder(tf.float32, [])
+
+    epochs = 3
+    batch_size = 4
+
+    training_data_dir = os.path.join(data_dir, 'data_road/training')
+    get_training_batches = get_batching_function(training_data_dir, image_shape, batch_size)
+
+    with tf.Session() as session:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
-        # Create function to get batches
-        get_batches_fn = helper.gen_batch_function(os.path.join(data_dir, 'data_road/training'), image_shape)
 
         # OPTIONAL: Augment Images for better results
         #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
         # TODO: Build NN using load_vgg, layers, and optimize function
+        input_image_placeholder, keep_probability_placeholder, layer_3_out_op, layer_4_out_op, layer_7_out_op = \
+            load_vgg(session, vgg_path)
+
+        logits_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
+
+        logits, train_op, loss_op = optimize(
+            logits_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
+
+        prediction_op = tf.nn.softmax(logits_op)
+
+        session.run(tf.global_variables_initializer())
+
+        images, labels = get_training_batches(batch_size)
+
+        feed_dictionary = {
+            input_image_placeholder: images,
+            correct_label_placeholder: labels,
+            keep_probability_placeholder: 1.0
+        }
+
+        predictions = session.run(prediction_op, feed_dictionary)
+        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions)
+        print("Before training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
         # TODO: Train NN using the train_nn function
+        train_nn(
+            session, epochs, batch_size, get_training_batches, train_op, loss_op,
+            input_image_placeholder, correct_label_placeholder,
+            keep_probability_placeholder, learning_rate_placeholder)
+
+        predictions = session.run(prediction_op, feed_dictionary)
+        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions)
+        print("After training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
         # TODO: Save inference data using helper.save_inference_samples
         #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
