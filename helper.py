@@ -77,24 +77,29 @@ def gen_batch_function(data_folder, image_shape):
             for path in glob(os.path.join(data_folder, 'gt_image_2', '*_road_*.png'))}
         background_color = np.array([255, 0, 0])
 
-        random.shuffle(image_paths)
-        for batch_i in range(0, len(image_paths), batch_size):
-            images = []
-            gt_images = []
-            for image_file in image_paths[batch_i:batch_i+batch_size]:
-                gt_image_file = label_paths[os.path.basename(image_file)]
+        # Small change to make generator go over the dataset indefinitely,
+        # rather than just once
+        while True:
 
-                image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
-                gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
+            random.shuffle(image_paths)
 
-                gt_bg = np.all(gt_image == background_color, axis=2)
-                gt_bg = gt_bg.reshape(*gt_bg.shape, 1)
-                gt_image = np.concatenate((gt_bg, np.invert(gt_bg)), axis=2)
+            for batch_i in range(0, len(image_paths), batch_size):
+                images = []
+                gt_images = []
+                for image_file in image_paths[batch_i:batch_i+batch_size]:
+                    gt_image_file = label_paths[os.path.basename(image_file)]
 
-                images.append(image)
-                gt_images.append(gt_image)
+                    image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
+                    gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
 
-            yield np.array(images), np.array(gt_images)
+                    gt_bg = np.all(gt_image == background_color, axis=2)
+                    gt_bg = gt_bg.reshape(*gt_bg.shape, 1)
+                    gt_image = np.concatenate((gt_bg, np.invert(gt_bg)), axis=2)
+
+                    images.append(image)
+                    gt_images.append(gt_image)
+
+                yield np.array(images), np.array(gt_images)
     return get_batches_fn
 
 
@@ -103,7 +108,7 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
     Generate test output using the test images
     :param sess: TF session
     :param logits: TF Tensor for the logits
-    :param keep_prob: TF Placeholder for the dropout keep robability
+    :param keep_prob: TF Placeholder for the dropout keep probability
     :param image_pl: TF Placeholder for the image placeholder
     :param data_folder: Path to the folder that contains the datasets
     :param image_shape: Tuple - Shape of image
@@ -117,6 +122,9 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
             {keep_prob: 1.0, image_pl: [image]})
         im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
         segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
+
+        print("Segmentation ratio: {}".format(np.sum(segmentation) / np.prod(segmentation.shape)))
+
         mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
         mask = scipy.misc.toimage(mask, mode="RGBA")
         street_im = scipy.misc.toimage(image)

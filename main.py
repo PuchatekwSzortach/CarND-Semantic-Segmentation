@@ -18,10 +18,14 @@ else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
-def get_accuracy(ground_truth, prediction):
+def get_accuracy(ground_truth, prediction, image_shape):
+
+    ground_truth = ground_truth.reshape((-1,) + image_shape + (2, ))
+    prediction = prediction.reshape((-1,) + image_shape + (2,))
+
+    all_ones = np.ones(shape=ground_truth.shape[:-1])
 
     classification = (prediction > 0.5).astype(int)
-
 
     non_road_ground_truth = ground_truth[:, :, :, 0]
     road_ground_truth = ground_truth[:, :, :, 1]
@@ -29,11 +33,13 @@ def get_accuracy(ground_truth, prediction):
     non_road_classification = classification[:, :, :, 0]
     road_classification = classification[:, :, :, 1]
 
-    non_road_union = (non_road_ground_truth == non_road_classification).astype(np.int)
-    non_road_accuracy = np.sum(non_road_union) / np.prod(non_road_ground_truth.shape)
+    non_road_intersection = all_ones[(non_road_ground_truth == True) & (non_road_classification == True)]
+    non_road_union = all_ones[(non_road_ground_truth == True) | (non_road_classification == True)]
+    non_road_accuracy = np.sum(non_road_intersection) / np.sum(non_road_union)
 
-    road_union = (road_ground_truth == road_classification).astype(np.int)
-    road_accuracy = np.sum(road_union) / np.prod(road_ground_truth.shape)
+    road_intersection = all_ones[(road_ground_truth == True) & (road_classification == True)]
+    road_union = all_ones[(road_ground_truth == True) | (road_classification == True)]
+    road_accuracy = np.sum(road_intersection) / np.sum(road_union)
 
     return non_road_accuracy, road_accuracy
 
@@ -80,35 +86,29 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     # TODO: Implement function
     # Op is same size as vgg_layer4_out
     upscaled_layer_7 = tf.contrib.layers.conv2d_transpose(
-        vgg_layer7_out, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+        vgg_layer7_out, num_classes, kernel_size=(4, 4), stride=(2, 2), activation_fn=tf.nn.relu)
 
     # Create proper kernels number from layer 4, scale down values so they are of similar
     # range as layer 7 outputs
-    scaled_vgg_layer4_out = 0.01 * tf.layers.conv2d(
-        vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+    scaled_vgg_layer4_out = tf.layers.conv2d(
+        0.1 * vgg_layer4_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
         name="scaled_vgg_layer4_out")
 
     merged_7_4 = upscaled_layer_7 + scaled_vgg_layer4_out
 
     upscaled_7_4 = tf.contrib.layers.conv2d_transpose(
-        merged_7_4, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+        merged_7_4, num_classes, kernel_size=(4, 4), stride=(2, 2), activation_fn=tf.nn.relu)
 
     # Create proper kernels number from layer 3, scale down values so they are of similar
     # range as layer upscaled_7_4 outputs
-    scaled_vgg_layer3_out = 0.01 * tf.layers.conv2d(
-        vgg_layer3_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
+    scaled_vgg_layer3_out = tf.layers.conv2d(
+        0.01 * vgg_layer3_out, num_classes, kernel_size=(1, 1), strides=(1, 1), activation=tf.nn.relu,
         name="scaled_vgg_layer3_out")
 
     merged_op = upscaled_7_4 + scaled_vgg_layer3_out
 
     upscaled_op = tf.contrib.layers.conv2d_transpose(
-        merged_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
-
-    upscaled_op = tf.contrib.layers.conv2d_transpose(
-        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
-
-    upscaled_op = tf.contrib.layers.conv2d_transpose(
-        upscaled_op, num_classes, kernel_size=(2, 2), stride=(2, 2), activation_fn=tf.nn.relu)
+        merged_op, num_classes, kernel_size=(16, 16), stride=(8, 8), activation_fn=tf.nn.relu)
 
     return upscaled_op
 
@@ -159,7 +159,7 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     # There are 290 images in both training and test datasets
     batches_per_epoch = int(290 / batch_size)
 
-    learning_rate_value = 0.01
+    learning_rate_value = 0.0001
 
     for epoch_index in range(epochs):
 
@@ -218,10 +218,11 @@ def run():
     correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
     learning_rate_placeholder = tf.placeholder(tf.float32, [])
 
-    epochs = 3
+    epochs = 20
     batch_size = 4
 
     training_data_dir = os.path.join(data_dir, 'data_road/training')
+
     get_training_batches = get_batching_function(training_data_dir, image_shape, batch_size)
 
     with tf.Session() as session:
@@ -235,14 +236,12 @@ def run():
         input_image_placeholder, keep_probability_placeholder, layer_3_out_op, layer_4_out_op, layer_7_out_op = \
             load_vgg(session, vgg_path)
 
-        logits_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
+        segmentation_op = layers(layer_3_out_op, layer_4_out_op, layer_7_out_op, num_classes)
 
         logits, train_op, loss_op = optimize(
-            logits_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
+            segmentation_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
 
-        prediction_op = tf.nn.softmax(logits_op)
-
-        session.run(tf.global_variables_initializer())
+        prediction_op = tf.nn.softmax(logits)
 
         images, labels = get_training_batches(batch_size)
 
@@ -252,8 +251,10 @@ def run():
             keep_probability_placeholder: 1.0
         }
 
+        session.run(tf.global_variables_initializer())
+
         predictions = session.run(prediction_op, feed_dictionary)
-        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions)
+        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions, image_shape)
         print("Before training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
         # TODO: Train NN using the train_nn function
@@ -263,11 +264,12 @@ def run():
             keep_probability_placeholder, learning_rate_placeholder)
 
         predictions = session.run(prediction_op, feed_dictionary)
-        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions)
+        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions, image_shape)
         print("After training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
         # TODO: Save inference data using helper.save_inference_samples
-        #  helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image)
+        helper.save_inference_samples(
+            runs_dir, data_dir, session, image_shape, logits, keep_probability_placeholder, input_image_placeholder)
 
         # OPTIONAL: Apply the trained model to a video
 
