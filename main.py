@@ -18,32 +18,6 @@ else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
 
 
-def get_accuracy(ground_truth, prediction, image_shape):
-
-    ground_truth = ground_truth.reshape((-1,) + image_shape + (2, ))
-    prediction = prediction.reshape((-1,) + image_shape + (2,))
-
-    all_ones = np.ones(shape=ground_truth.shape[:-1])
-
-    classification = (prediction > 0.5).astype(int)
-
-    non_road_ground_truth = ground_truth[:, :, :, 0]
-    road_ground_truth = ground_truth[:, :, :, 1]
-
-    non_road_classification = classification[:, :, :, 0]
-    road_classification = classification[:, :, :, 1]
-
-    non_road_intersection = all_ones[(non_road_ground_truth == True) & (non_road_classification == True)]
-    non_road_union = all_ones[(non_road_ground_truth == True) | (non_road_classification == True)]
-    non_road_accuracy = np.sum(non_road_intersection) / np.sum(non_road_union)
-
-    road_intersection = all_ones[(road_ground_truth == True) & (road_classification == True)]
-    road_union = all_ones[(road_ground_truth == True) | (road_classification == True)]
-    road_accuracy = np.sum(road_intersection) / np.sum(road_union)
-
-    return non_road_accuracy, road_accuracy
-
-
 def load_vgg(session, vgg_path):
     """
     Load Pretrained VGG Model into TensorFlow.
@@ -225,8 +199,10 @@ def run():
     correct_label_placeholder = tf.placeholder(tf.float32, label_shape)
     learning_rate_placeholder = tf.placeholder(tf.float32, [])
 
-    epochs = 100
-    batch_size = 8
+    # GPU could take more images, but larger batches decrease performance
+    # This is in line with original FCN paper, which used single image per batch
+    batch_size = 4
+    epochs = 50
 
     training_data_dir = os.path.join(data_dir, 'data_road/training')
 
@@ -258,19 +234,11 @@ def run():
 
         session.run(tf.global_variables_initializer())
 
-        predictions = session.run(tf.nn.softmax(logits), feed_dictionary)
-        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions, image_shape)
-        print("Before training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
-
         # TODO: Train NN using the train_nn function
         train_nn(
             session, epochs, batch_size, get_training_batches, train_op, loss_op,
             input_image_placeholder, correct_label_placeholder,
             keep_probability_placeholder, learning_rate_placeholder)
-
-        predictions = session.run(tf.nn.softmax(logits), feed_dictionary)
-        non_road_accuracy, road_accuracy = get_accuracy(labels, predictions, image_shape)
-        print("After training:\nNon road accuracy: {}\nRoad accuracy: {}".format(non_road_accuracy, road_accuracy))
 
         # TODO: Save inference data using helper.save_inference_samples
         helper.save_inference_samples(
