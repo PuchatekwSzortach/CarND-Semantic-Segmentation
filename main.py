@@ -202,7 +202,7 @@ def run():
     # GPU could take more images, but larger batches decrease performance
     # This is in line with original FCN paper, which used single image per batch
     batch_size = 4
-    epochs = 50
+    epochs = 80
 
     training_data_dir = os.path.join(data_dir, 'data_road/training')
 
