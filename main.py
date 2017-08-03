@@ -154,12 +154,12 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
                 input_image: images,
                 correct_label: labels,
                 keep_prob: 1.0,
-                learning_rate: learning_rate_value * (0.99 ** epoch_index)
+                learning_rate: learning_rate_value * (0.95 ** epoch_index)
             }
 
             sess.run(train_op, feed_dictionary)
 
-            if batch_index % 10 == 0:
+            if batch_index % 20 == 0:
                 loss = sess.run(cross_entropy_loss, feed_dictionary)
                 print("\tBatch loss: {}".format(loss))
 
@@ -201,8 +201,8 @@ def run():
 
     # GPU could take more images, but larger batches decrease performance
     # This is in line with original FCN paper, which used single image per batch
-    batch_size = 4
-    epochs = 80
+    batch_size = 1
+    epochs = 40
 
     training_data_dir = os.path.join(data_dir, 'data_road/training')
 
@@ -225,12 +225,6 @@ def run():
             segmentation_op, correct_label_placeholder, learning_rate_placeholder, num_classes)
 
         images, labels = get_training_batches(batch_size)
-
-        feed_dictionary = {
-            input_image_placeholder: images,
-            correct_label_placeholder: labels,
-            keep_probability_placeholder: 1.0
-        }
 
         session.run(tf.global_variables_initializer())
 
